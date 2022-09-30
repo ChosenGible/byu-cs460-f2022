@@ -8,15 +8,17 @@ import sys
 LOG_PREFIX = r'^(?P<time>\d+\.\d+)\s+(?P<hostname>\S+)\s+'
 LOG_START_RE = re.compile(LOG_PREFIX + r'START$')
 LOG_STOP_RE = re.compile(LOG_PREFIX + r'STOP$')
-LOG_FRAME_RECV_RE = re.compile(LOG_PREFIX + \
-        r'Received frame on\s+(?P<intf>\S+): ' + \
-        r'(?P<src>[0-9a-f]{2}(:[0-9a-f]{2}){5}) -> ' + \
-        r'(?P<dst>[0-9a-f]{2}(:[0-9a-f]{2}){5})$')
+LOG_ARP_RECV_RE = re.compile(LOG_PREFIX + \
+        r'Received ARP (?P<type>REQUEST|REPLY) ' + \
+        r'from (?P<src_ip>\d+\.\d+\.\d+\.\d+)/' + \
+        r'(?P<src_mac>[0-9a-f]{2}(:[0-9a-f]{2}){5}) for (\d+\.\d+\.\d+\.\d+)')
+LOG_ICMP_RECV_RE = re.compile(LOG_PREFIX + \
+        r'Received ICMP packet from (?P<src_ip>\d+\.\d+\.\d+\.\d+)')
 
 NEXT_ITERATION_SLACK = 0.15 # 150 ms
 MAX_INTERVAL = 0.5 # 500 ms
 
-class Lab1Tester:
+class Lab2Tester:
     cmd = []
     expected_observations = []
 
@@ -90,15 +92,24 @@ class Lab1Tester:
                 continue
 
             cat = ''
-            m = LOG_FRAME_RECV_RE.search(line)
+            m = LOG_ARP_RECV_RE.search(line)
             if m is not None:
                 hostname = m.group('hostname')
-                cat = 'FRAME'
+                if m.group('type') == 'REQUEST':
+                    cat = 'ARP_REQUEST'
+                else:
+                    cat = 'ARP_REPLY'
             else:
-                m = LOG_STOP_RE.search(line)
+                m = LOG_ICMP_RECV_RE.search(line)
                 if m is not None:
-                    hostname = ''
-                    cat = ''
+                    hostname = m.group('hostname')
+                    cat = 'ICMP'
+
+                else:
+                    m = LOG_STOP_RE.search(line)
+                    if m is not None:
+                        hostname = ''
+                        cat = ''
 
             if m is not None:
                 mytime = float(m.group('time'))
@@ -156,63 +167,60 @@ class Lab1Tester:
         output_lines = output.splitlines()
         return self.evaluate_lines(output_lines)
 
-class Scenario1(Lab1Tester):
+class Scenario1(Lab2Tester):
     cmd = ['cougarnet', '--stop=22', '--disable-ipv6',
             '--terminal=none', 'scenario1.cfg']
+
     expected_observations = [
-            [('FRAME', ['b', 'c', 'd', 'e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['c'])],
-            [('FRAME', ['b', 'c', 'd', 'e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['c'])],
+            [('ARP_REQUEST', ['b', 'r1']),
+                ('ARP_REPLY', ['a']),
+                ('ICMP', ['b'])],
             None,
+            [('ICMP', ['b'])],
             None,
-            [('FRAME', ['a'])],
-            [('FRAME', ['b', 'c', 'd', 'e'])],
+            [('ICMP', ['a'])],
+            None,
+            [('ARP_REQUEST', ['b', 'r1']),
+                ('ARP_REPLY', ['a']),
+                ('ICMP', ['r1']),
+                ('ARP_REQUEST', ['c']),
+                ('ARP_REPLY', ['r1']),
+                ('ICMP', ['c'])],
             ]
 
-class Scenario2(Lab1Tester):
+class Scenario2(Lab2Tester):
     cmd = ['cougarnet', '--stop=22', '--disable-ipv6',
             '--terminal=none', 'scenario2.cfg']
-    expected_observations = [
-            [('FRAME', ['b', 'c', 'd', 'e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['c'])],
-            [('FRAME', ['b', 'c', 'd', 'e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['c'])],
-            None,
-            None,
-            [('FRAME', ['a'])],
-            [('FRAME', ['b', 'c', 'd', 'e'])],
-            ]
 
-class Scenario3(Lab1Tester):
-    cmd = ['cougarnet', '--stop=22', '--disable-ipv6',
-            '--terminal=none', 'scenario3.cfg']
     expected_observations = [
-            [('FRAME', ['c', 'e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['c'])],
-            [('FRAME', ['c', 'e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['e'])],
-            [('FRAME', ['a'])],
-            [('FRAME', ['c'])],
-            None,
-            None,
-            [('FRAME', ['a'])],
-            [('FRAME', ['c', 'e'])],
+            [('ICMP', ['b'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['g'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['f'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['c'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['k'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['j'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['h'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['d'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['i'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['e'])],
+            [('ICMP', ['r1']),
+                ('ICMP', ['r2']),
+                ('ICMP', ['l'])],
+            [('ICMP', ['r1'])],
             ]
 
 def main():
     try:
-        for scenario in Scenario1, Scenario2, Scenario3:
+        for scenario in Scenario1, Scenario2:
             print(f'Running {scenario.__name__}...')
             tester = scenario()
             success, total = tester.run()
