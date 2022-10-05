@@ -375,6 +375,11 @@ Regarding the fields:
    long)
  - Operation (or opcode) will either be request (`ARPOP_REQUEST = 1`) or reply
    (`ARPOP_REPLY = 2`).
+ - The length of the hardware and protocol addresses will match the value of
+   the Hardware Address Length and Protocol Address Length fields--that is, 6
+   and 4, respectively.  They are shown as variable length (`:::`) because they
+   could be applied to hardware other than Ethernet and protocols other than
+   IPv4.
  - While "Hardware" and "Protocol" are the more generic terms for the fields,
    they are referred to in the instructions as "MAC" and "IP" since those are
    the protocols we are working with.
@@ -749,6 +754,11 @@ the working directory:
 ```
 ./driver.py
 ```
+
+Please note that if you have _only_ completed part 1, then the driver will
+complain that `c` has not seen the ARP request from `r1` when running scenario
+1.  That's okay for part 1!  It's only important that `c` sees `r1`'s ARP
+request (and the subsequent ICMP message) _after_ you implement parts 2 and 3.
 
 
 # Evaluation
