@@ -1,35 +1,35 @@
 '''
 Test the Prefix.__contains__() method
 >>> '10.20.0.1' in Prefix('10.20.0.0/23')
-False
+True
 >>> '10.20.1.0' in Prefix('10.20.0.0/23')
-False
+True
 >>> '10.20.1.255' in Prefix('10.20.0.0/23')
-False
+True
 >>> '10.20.2.0' in Prefix('10.20.0.0/23')
 False
 >>> '10.20.0.1' in Prefix('10.20.0.0/24')
-False
+True
 >>> '10.20.0.255' in Prefix('10.20.0.0/24')
-False
+True
 >>> '10.20.1.0' in Prefix('10.20.0.0/24')
 False
 >>> '10.20.0.1' in Prefix('10.20.0.0/25')
-False
+True
 >>> '10.20.0.127' in Prefix('10.20.0.0/25')
-False
+True
 >>> '10.20.0.128' in Prefix('10.20.0.0/25')
 False
 >>> '10.20.0.1' in Prefix('10.20.0.0/26')
-False
+True
 >>> '10.20.0.63' in Prefix('10.20.0.0/26')
-False
+True
 >>> '10.20.0.64' in Prefix('10.20.0.0/26')
 False
 >>> '10.20.0.1' in Prefix('10.20.0.0/27')
-False
+True
 >>> '10.20.0.31' in Prefix('10.20.0.0/27')
-False
+True
 >>> '10.20.0.32' in Prefix('10.20.0.0/27')
 False
 '''
@@ -137,6 +137,12 @@ def ip_prefix_mask(family, prefix_len):
     '''
 
     #FIXME
+    if (family == socket.AF_INET):
+        lower_mask = all_ones(prefix_len)
+        return lower_mask << 32 - prefix_len
+    elif (family == socket.AF_INET6):
+        lower_mask = all_ones(prefix_len)
+        return lower_mask << 128 - prefix_len
     return 0
 
 def ip_prefix(address, family, prefix_len):
@@ -169,7 +175,7 @@ def ip_prefix(address, family, prefix_len):
     '''
 
     #FIXME
-    return 0
+    return address & ip_prefix_mask(family, prefix_len)
 
 def ip_prefix_total_addresses(family, prefix_len):
     '''Return the total number IP addresses (_including_ the first and
@@ -193,6 +199,10 @@ def ip_prefix_total_addresses(family, prefix_len):
     '''
 
     #FIXME
+    if family == socket.AF_INET:
+        return 2**(32 - prefix_len)
+    elif family == socket.AF_INET6:
+        return 2**(128 - prefix_len)
     return 0
 
 def ip_prefix_nth_address(prefix, family, prefix_len, n):
@@ -226,7 +236,7 @@ def ip_prefix_nth_address(prefix, family, prefix_len, n):
     '''
 
     #FIXME
-    return 0
+    return prefix + n
 
 def ip_prefix_last_address(prefix, family, prefix_len):
     '''Return the last IP address within the prefix specified with the given
@@ -259,7 +269,11 @@ def ip_prefix_last_address(prefix, family, prefix_len):
     '''
 
     #FIXME
-    return 0
+    if (family == socket.AF_INET):
+        return prefix + all_ones(32 - prefix_len)
+    elif (family == socket.AF_INET6):
+        return prefix + all_ones(128 - prefix_len)
+    return 0 
 
 
 class Prefix:
@@ -308,7 +322,8 @@ class Prefix:
 
         address = ip_str_to_int(address)
 
-        #FIXME
+        if (ip_prefix(address, family, self.prefix_len) == self.prefix):
+            return True
         return False
 
     def __hash__(self):
