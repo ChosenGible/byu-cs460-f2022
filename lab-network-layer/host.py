@@ -5,6 +5,9 @@ import asyncio
 import os
 import socket
 import sys
+import json
+import pprint
+from prefix import ip_prefix_last_address
 
 from numpy import source
 
@@ -36,6 +39,30 @@ class Host(BaseHost):
         self._arp_table = {}
         self._queued_pkts = {}
 
+        self._forwarding_table = ForwardingTable()
+
+        routes = json.loads(os.environ['COUGARNET_ROUTES'])
+        
+        for route in routes:
+            prefix = route[0]
+            intf = route[1]
+            next_hop = route[2]
+            self._forwarding_table.add_entry(prefix, intf, next_hop)
+
+        #add ip prefixes for each interface
+        for intf in self.physical_interfaces:
+            info = self.int_to_info[intf]
+            #print(info.ipv4_addrs)
+            #print(info.ipv4_prefix_len)
+            ip_addr = info.ipv4_addrs[0]
+            prefix_len = str(info.ipv4_prefix_len)
+            prefix =  ip_addr + '/' + prefix_len
+            next_hop = None
+
+            self._forwarding_table.add_entry(prefix, intf, next_hop)
+
+
+        print()
         # do any additional initialization here
 
     def is_ip_in_arp_table(self, ip):
@@ -73,19 +100,56 @@ class Host(BaseHost):
         if (dest_mac == "ff:ff:ff:ff:ff:ff" or dest_mac == self.int_to_info[intf].mac_addr):
             e_type = frame[12:14]
             if (e_type ==  b'\x08\x00'):
+                print("ip")
                 self.handle_ip(frame[14:], intf)
             elif (e_type == b'\x08\x06'):
+                print("arp")
                 self.handle_arp(frame[14:], intf)
 
 
+    def _is_broadcast(self, ip, intf):
+        broadcast = ip_prefix_last_address(int.from_bytes(ip, 'big'), socket.AF_INET, self.int_to_info[intf].ipv4_prefix_len)
+        
+        if (int.from_bytes(ip, 'big') == broadcast):
+            return True
+        return False
 
     def handle_ip(self, pkt, intf):
-        pass
+        print("handling ip")
+        dest = ip_binary_to_str(pkt[16:20])
+        print("dest ip: ", dest)
+
+        is_for_this_host = False
+
+        if (self._is_broadcast(ip_str_to_binary(dest), intf)):
+            is_for_this_host = True
+
+        for h_intf in self.physical_interfaces:
+            if dest == self.int_to_info[h_intf].ipv4_addrs[0]:
+                is_for_this_host == True
+
+        print("for this host? ", is_for_this_host)
+
+        if is_for_this_host:
+            ip_type = int.from_bytes(pkt[9:10], byteorder='big')
+            print("ip protocol: ", ip_type)
+
+            if ip_type == 6:
+                self.handle_tcp(pkt)
+            elif ip_type == 17:
+                self.handle_udp(pkt)
+        else:
+            self.not_my_packet(pkt, intf)
+
+
+
 
     def handle_tcp(self, pkt):
+        print("was tcp")
         pass
 
     def handle_udp(self, pkt):
+        print("was udp")
         pass
 
     def handle_arp(self, pkt, intf):
@@ -181,15 +245,45 @@ class Host(BaseHost):
 
     def send_packet(self, pkt):
         print(f'Attempting to send packet:\n{repr(pkt)}')
+        
+        dest = ip_binary_to_str(pkt[16:20])
+        print("dest ip: ", dest)
+
+        intf, next_hop = self._forwarding_table.get_entry(dest)
+
+        print("interface: ", intf, " next hop: ", next_hop)
+
+        if intf == None:
+            print("lol not valid interface\n")
+            return
+        
+        if next_hop == None:
+            next_hop = dest
+        
+        print("on: ", intf, " to: ", next_hop)
+        self.send_packet_on_int(pkt, intf, next_hop)
+
 
     def forward_packet(self, pkt):
-        pass
+        print("fowarding packet")
+        ttl = int.from_bytes(pkt[8:9], byteorder='big')
+
+        ttl -= 1
+
+        if ttl == 0:
+            print("expired ttl, drop it")
+            return
+
+        new_pkt = pkt[:8] + ttl.to_bytes(1, byteorder='big') + pkt[9:]
+        self.send_packet(new_pkt)
 
     def not_my_frame(self, frame, intf):
         pass
 
     def not_my_packet(self, pkt, intf):
-        pass
+        print("Forward? ", self._ip_forward)
+        if self._ip_forward == True:
+            self.forward_packet(pkt)
 
 def main():
     parser = argparse.ArgumentParser()

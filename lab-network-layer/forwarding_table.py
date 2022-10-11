@@ -45,6 +45,8 @@ class ForwardingTable(object):
         prefix: str
         '''
 
+        print("pre: ", prefix, " intf: ", intf, " n hop: ", next_hop)
+
         prefix = Prefix(prefix)
 
         if intf is None:
@@ -94,6 +96,10 @@ class ForwardingTable(object):
                     longest_prefix = prefix
         
         if longest_prefix != Prefix('0.0.0.0/0'):
+            return self.entries[longest_prefix]
+        
+        #default route
+        elif longest_prefix in self.entries:
             return self.entries[longest_prefix]
 
         return None, None
