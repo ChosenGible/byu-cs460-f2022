@@ -13,11 +13,18 @@ the routes learned.
    - [Scenario Descriptions](#scenario-descriptions)
    - [Packets Issued](#packets-issued)
  - [Instructions](#instructions)
+   - [Copy `prefix.py`](#copy-prefixpy)
    - [Specification](#specification)
    - [Scaffold Code](#scaffold-code)
    - [Testing](#testing)
-   - [Helps](#helps)
+ - [Automated Testing](#automated-testing)
+ - [Evaluation](#evaluation)
+ - [Helps](#helps)
+   - [Useful Methods](#useful-methods)
+   - [Other Helps](#other-helps)
+ - [Automated Testing](#automated-testing)
  - [Submission](#submission)
+
 
 # Getting Started
 
@@ -43,6 +50,14 @@ Install [pyroute2](https://pyroute2.org/) by running the following:
 ```
 $ sudo apt install python3-pyroute2
 ```
+
+
+## Modify Virtual Maching Resources
+
+This lab requires your VM to start 15 virtual hosts (scenario 3).  For some
+host systems, this can be quite intense.  To help address this, it might be
+beneficial to shut down your VM and use VirtualBox or UTM to increase the
+number of cores associated with your VM.
 
 
 ## Resources Provided
@@ -105,20 +120,27 @@ r2$ ip route
 (The `2> /dev/null` simply redirects standard error, which is noisy due to
 unknown causes related to working in a private network namespace :))
 
-You should only see two entries in the forwarding table, each one corresponding
-to an interface on the router.  These table entries are created automatically
-by the system when the interfaces are configured with their respective IP
-addresses and prefix lengths.  So basically at this point, `r2` knows that to
-get to the subnet corresponding to its `r2-r1` interface, it sends a packet
-out `r2-r1`, and to get to the subnet corresponding to its `r2-r3` interface,
-it sends a packet out `r2-r3`.  The problem is that for anything else, it
+You should only see two entries in the forwarding table:
+
+```
+10.0.0.0/30 dev r2-r1
+10.0.0.4/30 dev r2-r3
+```
+
+Each entry corresponds to an interface on the router.  These table entries are
+created automatically by the system when the interfaces are configured with
+their respective IP addresses and prefix lengths.  So basically at this point,
+`r2` knows that to get to the subnet corresponding to its `r2-r1` interface, it
+sends a packet out `r2-r1`, and to get to the subnet corresponding to its
+`r2-r3` interface, it sends a packet out `r2-r3`.  (Note that these entries are
+exactly what you integrated into your router code in the `__init__()` method of
+your `Host` code as part of the
+[network-layer lab](../lab-network-layer/README.md#instructions)!)
+The problem is that for any destinations outside of these local subnets, it
 doesn't know where to go!
 
-Rather than manually creating static forwarding entries, like you did with the
-previous
-[homework](../hw-network-layer/)
-and
-[lab](../lab-network-layer/),
+Rather than manually adding static forwarding entries, like you did with the
+previous [homework](../hw-network-layer/) and [lab](../lab-network-layer/),
 in this lab, you will update the forwarding tables dynamically using a distance
 vector (DV) protocol.  Indeed, you will have a working router that will not
 only be capable of _forwarding_ packets but also _routing_!
@@ -149,8 +171,8 @@ by multiple routers, including the destination.
 Your working router should work in the following three scenarios, described in
 the files `scenario1.cfg`, `scenario2.cfg`, and `scenario3.cfg`, respectively.
 
-### Scenario 1
 
+### Scenario 1
 
 In scenario, routers `r1` through `r5` are connected in a line.
 
@@ -179,7 +201,7 @@ After some time, the link between `r1` and `r5` is dropped:
     r1 --- r2
              \
     |         \
-    X          r3
+   XXX         r3
     |         /
              /
     r5 --- r4
@@ -215,7 +237,7 @@ After some time, the link between `r2` and `r8` is dropped:
        --- r7 ----r8
       /    |
      /     |      |
-   r9      |      X
+   r9      |     XXX
      \     |      |
       \    |
        --- r6     r2 --- r14 --- r15
@@ -271,7 +293,7 @@ distance vectors and forwarding table entries have been updated properly.
  - 5 seconds: ICMP packet sent from `r9` to `r11` and back again
  - 6 seconds: ICMP packet sent from `r9` to `r12` and back again
  - 7 seconds: ICMP packet sent from `r9` to `r13` and back again
- - 8 seconds: ICMP packet sent from `r9` to `r14` and back again
+ - 8 seconds: ICMP packet sent from `r6` to `r14` and back again
  - 9 seconds: ICMP packet sent from `r7` to `r15` and back again
  - 10 seconds: Link dropped between `r2` and `r8`
  - 18 seconds: ICMP packet sent from `r7` to `r15` and back again
@@ -283,23 +305,57 @@ Read Section 5.2.2 ("The Distance-Vector (DV) Routing Algorithm") in the book.
 Then implement a DV router in `dvrouter.py` with the following functionality.
 
 
+## Copy `prefix.py`
+
+Copy your fleshed out copy of `prefix.py` from the
+[previous lab](../lab-network-layer/README.md#part-2---forwarding-table):
+
+```bash
+$ cp ../lab-network-layer/prefix.py .
+```
+
+While note everything needs to be working, the IP manipulation functions do
+need to work properly, enough to allow the `ip_prefix_last_address()` function
+to work properly.
+
+
 ## Specification
 
- - A router starts out knowing only about the IP prefixes with which it is
-   directly connected.  In a general sense, this includes the subnets to which
-   it is directly connected.  However, for this lab, the prefixes that will be
-   passed around will be /32's.  That is, we will treat IP _addresses_ as the
-   IP _prefixes_.  This will simplify things, so you can focus on the routing.
+ - A router starts out knowing only about the IP prefixes to which it is
+   directly connected.  For example, as shown in the
+   [example given previously](#starter-commands), `r2`'s initial DV in
+   scenario 1 (i.e., before it receives any DVs from neighbors) from the would
+   look something like this:
 
-   For example, in scenario 1, `r2`'s initial DV (i.e., before it receives any
-   DVs from neighbors) from the [example given previously](#starter-commands)
-   will look something like this:
+   - Prefix: 10.0.0.0/30; Distance: 0
+   - Prefix: 10.0.0.4/30; Distance: 0
 
-   - Prefix: 10.0.0.2; Distance: 0
-   - Prefix: 10.0.0.5; Distance: 0
+   However, we will _not_ do that for for this lab.  Instead, the prefixes that
+   will be passed around will be /32's.  That is, we will treat IP _addresses_ as
+   the IP _prefixes_.  Thus, instead of `r2` starting with `10.0.0.0/30` and
+   `10.0.0.4/30`, it will start with:
+
+   - Prefix: 10.0.0.2/32; Distance: 0
+   - Prefix: 10.0.0.5/32; Distance: 0
+
+   The short explanation for this is that it will simplify things, so you can
+   focus on the routing.
+
+   Here is the longer explanation.  You might notice that when we advertise the
+   entire prefix, instead of the /30, both `r1` and `r2` (in scenario 1) will
+   have an entry for `10.0.0.0/30`.  You might ask when how a packet leaving
+   `r5` to 10.0.0.1 (`r1`) will actually reach `r1`, seeing as `r2` is
+   indicating that it can reach `10.0.0.0/30` with distance 0.  The answer is that
+   once such a packet reaches `r2`, `r2` discovers (from its IP forwarding
+   table) that the packet's final destination is on the subnet associated with
+   its `r2-r1` interface.  So it just needs to craft a special Ethernet frame
+   using the MAC address of the final destination (in this case 10.0.0.1 or
+   `r1`'s `r1-r2` interface).  How does it know that MAC address?  From ARP, of
+   course :).  In _this_ lab, by routing with /32 prefixes, we remove the
+   dependency on ARP to keep things more simple.
 
    The IP address for each interface can be found with the `int_to_info`
-   attribute.
+   attribute.  The make it a prefix, simply add "/32".
 
  - A router sends its own DV to every one of its neighbors in a UDP datagram.
    You do not have to set up the socket for sending and receiving UDP datagrams
@@ -323,11 +379,16 @@ Then implement a DV router in `dvrouter.py` with the following functionality.
    subnet.  For example, the broadcast address for 10.1.2.0/24 is 10.1.2.255.
    And the broadcast address for 10.1.2.20/30 is 10.1.2.23.
    
-   However, in the lab, you won't have to calculate this yourself. The
-   broadcast IP address for the subnet corresponding to given interface can be
-   found with the `int_to_info` attribute, which is documented
-   [here](https://github.com/cdeccio/cougarnet/blob/main/README.md#baseframehandler).
-   Note that this subnet-specific broadcast address is used instead of a global
+   You might recall that the [previous lab](../lab-network-layer/) had you
+   create several function related to IP prefix handling, one of which was to
+   generate the broadcast (last) address for a given subnet (see
+   [Part 2](../lab-network-layer/README.md#part-2---forwarding-table) and also
+   the `handle_ip()` method in
+   [Part 3](../lab-network-layer/README.md#instructions-2).  The
+   `bcast_for_int()` method uses those functions to return the broadcast IP
+   address for the subnet associated with a given interface.
+
+   Note that the subnet-specific broadcast address is used instead of a global
    broadcast (255.255.255.255) for (at least) two reasons:
 
    - Since our packet only needs to reach the other side of the link, to a
@@ -354,7 +415,7 @@ Then implement a DV router in `dvrouter.py` with the following functionality.
    eventually to `bytes`) using JSON.  For example:
 
    ```python
-   obj = { 'ip': '10.0.0.1', 'name': 'r1', 'dv': { ... } }
+   obj = { 'ip': '10.0.0.1', 'name': 'r2', 'dv': { '10.0.0.2/32': 0, '10.0.0.5': 0 } }
    obj_str = json.dumps(obj)
    obj_bytes = obj_str.encode('utf-8')
    ```
@@ -399,8 +460,11 @@ Then implement a DV router in `dvrouter.py` with the following functionality.
    - When a router's own newly-created DV (which creation is prompted by a DV
      message from a neighbor) is _different_ from its previous
      version, then a new DV message is distributed immediately.
+
    - A DV message is distributed to neighbors every one second, as a
      keep-alive, to let neighbors know that the link is still up.
+
+   *IMPORTANT*: Only distribute your DV in one of these two circumstances!!
 
  - A router updates its forwarding table whenever its own DV has changed after
    its re-creation.  For every prefix in its DV, the next hop is the IP address
@@ -413,6 +477,9 @@ Then implement a DV router in `dvrouter.py` with the following functionality.
    entries, which are created by default, as described
    [previously](#starter-commands)).
 
+   *IMPORTANT*: Only update your forwarding table when your DV has *changed*
+   after an update!!
+
    There are two primary ways to update the forwarding table:
 
    - Call the `flush()` method on the forwarding table instance to clear out
@@ -420,6 +487,10 @@ Then implement a DV router in `dvrouter.py` with the following functionality.
    - Call the `get_all_entries()` method on the forwarding table instance to
      get its current state, and then add/remove using the `add_entry()` and
      `remove_entry()` methods, respectively, to update the table.
+
+   If the prefix is one that is local to this host (i.e., distance is 0), your
+   code does not need to create forwarding entry--because the host *is* the
+   final destination (i.e., it doesn't need to be forwarded)!
 
  - A router keeps track of the last time that it received a DV message from
    every neighbor.  After three seconds have passed since receiving a DV
@@ -470,12 +541,18 @@ implement the above specification.
 Test your implementation against scenario 1:
 
 ```
-$ cougarnet --disable-ipv6 scenario1.cfg
+$ cougarnet --disable-ipv6 --stop=30 scenario1.cfg
 ```
 
 Determine the appropriate output--that is, which hosts should see the scheduled
 ICMP packets on their way and back--and make sure that the cougarnet output
 matches appropriately.
+
+The `--stop=30` option is used to make sure that the Cougarnet instance running
+your scenario terminates if 30 seconds have passed.  You can adjust this number
+however you'd like.  However, I do recommend using the `--stop` option for this
+lab. If your router code gets into a loop that is otherwise difficult to
+interrupt, the `--stop` argument will help get it under control.
 
 When it is working properly, test also with the `--terminal=none` option:
 
@@ -486,8 +563,8 @@ $ cougarnet --disable-ipv6 --terminal=none scenario1.cfg
 Then proceed to test scenarios 2 and 3.
 
 ```
-$ cougarnet --disable-ipv6 scenario2.cfg
-$ cougarnet --disable-ipv6 scenario3.cfg
+$ cougarnet --disable-ipv6 --stop=15 scenario2.cfg
+$ cougarnet --disable-ipv6 --stop=36 scenario3.cfg
 ```
 
 When all are working properly, test also with the `--terminal=none` option:
@@ -499,9 +576,31 @@ $ cougarnet --disable-ipv6 --terminal=none scenario3.cfg
 ```
 
 
-## Helps
+# Automated Testing
 
-### Useful Methods
+For your convenience, a [script](driver.py) is also provided for automated
+testing.  This is not a replacement for manual testing but can be used as a
+sanity check.  You can use it by simply running the following in the working
+directory:
+
+```
+./driver.py
+```
+
+
+# Evaluation
+
+Your score will be computed out of a maximum of 100 points based on the
+following distribution:
+
+ - Scenario 1: 40 points
+ - Scenario 2: 30 points
+ - Scenario 3: 30 points
+
+
+# Helps
+
+## Useful Methods
 
  - The `ForwardingTableNative.get_all_entries()` will return all entries
    currently in the forwarding table.  You can use this along the way to
@@ -512,7 +611,8 @@ $ cougarnet --disable-ipv6 --terminal=none scenario3.cfg
  - Similarly, the `DVRouter.resolve_dv()` method takes as an argument a DV
    (`dict`) and replaces the IP address (key) with the corresponding hostname.
 
-### Other Helps
+## Other Helps
+
  - Get the routing code working first, then focus on recovery after a dropped
    link is detected.
  - In `update_dv()`, do _not_ try to optimize by _updating_ your DV.  Re-create
@@ -540,6 +640,20 @@ $ cougarnet --disable-ipv6 --terminal=none scenario3.cfg
  - Save your work often.  You are welcome (and encouraged) to use a version
    control repository, such as GitHub.  However, please ensure that it is a
    private repository!
+
+
+# Automated Testing
+
+(Driver is work-in-progress and will be included soon.)
+
+For your convenience, a [script](driver.py) is also provided for automated
+testing.  This is not a replacement for manual testing but can be used as a
+sanity check.  You can use it by simply running the following in the working
+directory:
+
+```
+./driver.py
+```
 
 
 # Submission

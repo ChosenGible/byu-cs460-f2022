@@ -1,16 +1,19 @@
 #!/usr/bin/python3
 
+import asyncio
 import socket
 import subprocess
 import traceback
 
-from scapy.all import Ether, IP
+from scapy.all import Ether, IP, ICMP
 from scapy.data import IP_PROTOS 
 from scapy.layers.inet import ETH_P_IP
 
-from cougarnet.networksched import NetworkEventLoop
+from cougarnet.sim.sys_cmd import sys_cmd_pid
 
 from dvrouter import DVRouter
+
+START_TIME = 8
 
 class SimHost(DVRouter):
     def _handle_frame(self, frame, intf):
@@ -19,7 +22,9 @@ class SimHost(DVRouter):
             if eth.type == ETH_P_IP:
                 ip = eth.getlayer(IP)
                 if ip.proto == IP_PROTOS.icmp:
-                    self.log(f'Received ICMP packet from {ip.src} on {intf}.')
+                    icmp = ip.getlayer(ICMP)
+                    if icmp.type in (0, 8):
+                        self.log(f'Received ICMP packet from {ip.src} on {intf}.')
         except:
             traceback.print_exc()
 
@@ -29,38 +34,49 @@ class SimHost(DVRouter):
         subprocess.run(cmd)
 
     def drop_link(self, intf):
-        cmd = ['sudo', 'iptables', '-A', 'INPUT', '-i', intf, '-j', 'DROP']
         self.log(f'Dropping link {intf}')
-        subprocess.run(cmd)
+        sys_cmd_pid(['set_iptables_drop', intf])
 
-    def schedule_items(self, event_loop):
+    def schedule_items(self):
         pass
 
 class SimHost2(SimHost):
-    def schedule_items(self, event_loop):
-        event_loop.schedule_event(10, self.drop_link, ('r2-r8',))
+    def schedule_items(self):
+        loop = asyncio.get_event_loop()
+        loop.call_later(START_TIME, self.log, 'START')
+        loop.call_later(START_TIME + 8, self.drop_link, 'r2-r8')
+        loop.call_later(START_TIME + 18, self.log, 'STOP')
 
 class SimHost8(SimHost):
-    def schedule_items(self, event_loop):
-        event_loop.schedule_event(10, self.drop_link, ('r8-r2',))
+    def schedule_items(self):
+        loop = asyncio.get_event_loop()
+        loop.call_later(START_TIME + 8, self.drop_link, 'r8-r2')
 
 class SimHost9(SimHost):
-    def schedule_items(self, event_loop):
-        event_loop.schedule_event(4, self.send_icmp_echo, ('r10',))
-        event_loop.schedule_event(5, self.send_icmp_echo, ('r11',))
-        event_loop.schedule_event(6, self.send_icmp_echo, ('r12',))
-        event_loop.schedule_event(7, self.send_icmp_echo, ('r13',))
-        event_loop.schedule_event(8, self.send_icmp_echo, ('r14',))
+    def schedule_items(self):
+        loop = asyncio.get_event_loop()
+        loop.call_later(START_TIME + 1, self.send_icmp_echo, 'r10')
+        loop.call_later(START_TIME + 2, self.send_icmp_echo, 'r11')
+        loop.call_later(START_TIME + 3, self.send_icmp_echo, 'r12')
+        loop.call_later(START_TIME + 4, self.send_icmp_echo, 'r13')
+
+class SimHost6(SimHost):
+    def schedule_items(self):
+        loop = asyncio.get_event_loop()
+        loop.call_later(START_TIME + 5, self.send_icmp_echo, 'r14')
 
 class SimHost7(SimHost):
-    def schedule_items(self, event_loop):
-        event_loop.schedule_event(9, self.send_icmp_echo, ('r15',))
-        event_loop.schedule_event(18, self.send_icmp_echo, ('r15',))
+    def schedule_items(self):
+        loop = asyncio.get_event_loop()
+        loop.call_later(START_TIME + 6, self.send_icmp_echo, 'r15')
+        loop.call_later(START_TIME + 17, self.send_icmp_echo, 'r15')
 
 def main():
     hostname = socket.gethostname()
     if hostname == 'r2':
         cls = SimHost2
+    elif hostname == 'r6':
+        cls = SimHost6
     elif hostname == 'r7':
         cls = SimHost7
     elif hostname == 'r8':
@@ -70,11 +86,15 @@ def main():
     else:
         cls = SimHost
 
-    router = cls()
-    event_loop = NetworkEventLoop(router._handle_frame)
-    router.init_dv(event_loop)
-    router.schedule_items(event_loop)
-    event_loop.run()
+    with cls() as router:
+        router.init_dv()
+        router.schedule_items()
+
+        loop = asyncio.get_event_loop()
+        try:
+            loop.run_forever()
+        finally:
+            loop.close()
 
 if __name__ == '__main__':
     main()
