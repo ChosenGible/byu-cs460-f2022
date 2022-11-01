@@ -1,6 +1,8 @@
 import asyncio
+from curses.has_key import has_key
 import json
 import socket
+import time
 
 NEIGHBOR_CHECK_INTERVAL = 3
 DV_TABLE_SEND_INTERVAL = 1
@@ -16,6 +18,14 @@ class DVRouter(BaseHost):
         super(DVRouter, self).__init__()
 
         self.my_dv = {}
+
+        #setup hostname to ip mapping
+        self.hostname_to_ip = {}
+        self.hostname_to_ip[self.hostname] = None
+        
+        #setup hostname timestamps for timeout (don't include self)
+        self.hostname_timestamps = {}
+
         self.neighbor_dvs = {}
 
         self.forwarding_table = ForwardingTable()
@@ -66,7 +76,18 @@ class DVRouter(BaseHost):
         self.sock.sendto(msg, (dst, DV_PORT))
 
     def handle_dv_message(self, msg: bytes) -> None:
-        pass
+        message_str = msg.decode('utf-8')
+        dv_metadata = json.loads(message_str)
+
+        name = dv_metadata['name']
+        ip = dv_metadata['ip']
+        dv = dv_metadata['dv']
+
+        if (name != self.hostname):
+            self.hostname_to_ip[name] = ip
+            self.hostname_timestamps[name] = time.time()
+            self.neighbor_dvs[name] = dv
+            
 
     def send_dv_next(self):
         '''Send DV to neighbors, and schedule this method to be called again in
@@ -79,6 +100,9 @@ class DVRouter(BaseHost):
 
     def handle_down_link(self, neighbor: str):
         self.log(f'Link down: {neighbor}')
+        self.neighbor_dvs.pop[neighbor]
+        self.hostname_to_ip.pop[neighbor]
+        self.hostname_timestamps.pop[neighbor]
 
     def resolve_neighbor_dvs(self):
         '''Return a copy of the mapping of neighbors to distance vectors, with
@@ -105,8 +129,62 @@ class DVRouter(BaseHost):
             resolved_dv[dst] = distance
         return resolved_dv
 
+    def neighbor_ip_to_intf(self, ip):
+            for key in self.int_to_info.keys():
+                k_ip = self.int_to_info[key].ipv4_addrs[0]
+                if ip == k_ip:
+                    return key
+            return None
+
     def update_dv(self) -> None:
-        pass
+        print("update start")
+        #check timestamps
+        curr_time = time.time()
+        for n_hostname in self.hostname_timestamps.keys():
+            n_timestamp = self.hostname_timestamps[n_hostname]
+            if (curr_time - n_timestamp) > 3:
+                self.handle_down_link(n_hostname)
+
+        #setup my dv info
+        min_dist = {}
+        for info in self.int_to_info.values():
+            if (len(info.ipv4_addrs) > 0):
+                addr = info.ipv4_addrs[0]
+                prefix = addr + "/32"
+                min_dist[prefix] = (self.hostname, 0)
+
+        #check for least cost neighbor
+        for n_hostname in self.neighbor_dvs.keys():
+            n_dv = self.neighbor_dvs[n_hostname]
+            print("n: ", n_hostname, " dv: ", json.dumps(n_dv))
+
+            for prefix in n_dv.keys:
+                p_cost = 1 + n_dv[prefix]
+                if not (prefix in min_dist) or min_dist[prefix][1] > p_cost:
+                    min_dist[prefix] = (n_hostname, p_cost)
+        
+        #build new dv
+        new_dv = {}
+        for prefix in min_dist:
+            new_dv[prefix] = min_dist[prefix][1]
+            
+        print("old DV: ", json.dumps(self.my_dv))
+        print("new DV: ", json.dumps(new_dv))
+
+        #check if old != new
+        if self.my_dv != new_dv:
+            self.my_dv = new_dv
+
+            #update forwarding tables
+            self.forwarding_table.flush()
+            
+            for prefix in min_dist.keys():
+                hostname = min_dist[prefix][0]
+                next_hop = self.hostname_to_ip[hostname]
+                self.forwarding_table.add_entry(prefix, None, next_hop)
+        else:
+            print("update settled")
+        print("Update finished\n")
 
     def bcast_for_int(self, intf: str) -> str:
         ip_int = ip_str_to_int(self.int_to_info[intf].ipv4_addrs[0])
@@ -116,4 +194,16 @@ class DVRouter(BaseHost):
         return bcast
 
     def send_dv(self) -> None:
-        print('Sending DV')
+        for intf in self.int_to_info.keys():
+            if len(self.int_to_info[intf].ipv4_addrs) > 0:
+                bcast = self.bcast_for_int(intf)
+                dv_with_metadata = {}
+                dv_with_metadata['ip'] = self.int_to_info[intf].ipv4_addrs[0]
+                dv_with_metadata['name'] = self.hostname
+                dv_with_metadata['dv'] = self.my_dv
+
+                dv_message_str = json.dumps(dv_with_metadata)
+                dv_message_bytes = dv_message_str.encode('utf-8')
+
+                self._send_msg(dv_message_bytes, bcast)
+        pass
