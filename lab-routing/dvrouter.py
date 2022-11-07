@@ -1,4 +1,5 @@
 import asyncio
+import prefix
 from curses.has_key import has_key
 import json
 import socket
@@ -152,7 +153,7 @@ class DVRouter(BaseHost):
         curr_time = time.time()
         for n_hostname in self.hostname_timestamps.keys():
             n_timestamp = self.hostname_timestamps[n_hostname]
-            if (curr_time - n_timestamp) > 3:
+            if (curr_time - n_timestamp) > NEIGHBOR_CHECK_INTERVAL:
                 self.handle_down_link(n_hostname)
 
         #setup my dv info
@@ -168,16 +169,16 @@ class DVRouter(BaseHost):
             n_dv = self.neighbor_dvs[n_hostname]
             print("n: ", n_hostname, " dv: ", json.dumps(n_dv))
 
-            for prefix in n_dv.keys:
+            for prefix in n_dv.keys():
                 p_cost = 1 + n_dv[prefix]
                 if not (prefix in min_dist) or min_dist[prefix][1] > p_cost:
                     min_dist[prefix] = (n_hostname, p_cost)
         
         #build new dv
         new_dv = {}
-        for prefix in min_dist:
+        for prefix in min_dist.keys():
             new_dv[prefix] = min_dist[prefix][1]
-            
+
         print("old DV: ", json.dumps(self.my_dv))
         print("new DV: ", json.dumps(new_dv))
 
@@ -191,9 +192,14 @@ class DVRouter(BaseHost):
             for prefix in min_dist.keys():
                 hostname = min_dist[prefix][0]
                 next_hop = self.hostname_to_ip[hostname]
+                print("prefix: ", prefix, " , next_hop: ", next_hop)
+                if next_hop == None:
+                    continue
                 self.forwarding_table.add_entry(prefix, None, next_hop)
+        
         else:
             print("update settled")
+
         print("Update finished\n")
 
     def bcast_for_int(self, intf: str) -> str:
