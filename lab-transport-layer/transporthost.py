@@ -53,7 +53,7 @@ class TransportHost(Host):
 
     def no_socket_udp(self, pkt: bytes) -> None:
         icmp_hdr = ICMPHeader(3, 3, 0)
-        pkt =
+        # pkt =
 
         pass
 
