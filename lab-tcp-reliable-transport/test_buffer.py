@@ -91,6 +91,7 @@ class TestBuffer(unittest.TestCase):
     def test_receive_buffer(self):
         buf = TCPReceiveBuffer(2021)
 
+        # print("\n~1~")
         # put three chunks in buffer
         buf.put(b'fghi', 2026)
         buf.put(b'def', 2024)
@@ -101,6 +102,7 @@ class TestBuffer(unittest.TestCase):
 
         # ignore a chunk starting with the same sequence number if the existing
         # chunk is longer
+        # print("\n~2~")
         buf.put(b'm', 2033)
         self.assertEqual(buf.buffer,
                 {2024: b'def', 2027: b'ghi', 2033: b'mn'})
@@ -108,6 +110,7 @@ class TestBuffer(unittest.TestCase):
 
         # overwrite a chunk starting with the same sequence number if the
         # existing chunk is shorter
+        # print("\n~3~")
         buf.put(b'mno', 2033)
         self.assertEqual(buf.buffer,
                 {2024: b'def', 2027: b'ghi', 2033: b'mno'})
@@ -115,17 +118,20 @@ class TestBuffer(unittest.TestCase):
 
         # try to get ready data; none is ready because initial bytes are
         # missing
+        # print("\n~4~")
         data, start = buf.get()
         self.assertEqual(data, b'')
         self.assertEqual(buf.base_seq, 2021)
 
         # add missing data
+        # print("\n~5~")
         buf.put(b'abc', 2021)
         self.assertEqual(buf.buffer,
                 {2021: b'abc', 2024: b'def', 2027: b'ghi', 2033: b'mno'})
         self.assertEqual(buf.base_seq, 2021)
 
         # get ready data
+        # print("\n~6~")
         data, start = buf.get()
         self.assertEqual(data, b'abcdefghi')
         self.assertEqual(start, 2021)
@@ -134,11 +140,13 @@ class TestBuffer(unittest.TestCase):
                 {2033: b'mno'})
 
         # add missing data
+        # print("\n~7~")
         buf.put(b'jkl', 2030)
         self.assertEqual(buf.buffer,
                 {2030: b'jkl', 2033: b'mno'})
 
         # get ready data
+        # print("\n~8~")
         data, start = buf.get()
         self.assertEqual(data, b'jklmno')
         self.assertEqual(start, 2030)

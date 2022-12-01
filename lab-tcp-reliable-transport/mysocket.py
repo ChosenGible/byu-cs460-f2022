@@ -227,10 +227,17 @@ class TCPSocket:
     @classmethod
     def create_packet(cls, src, sport, dst, dport,
             seq, ack, flags, data=b''):
-        return b''
+        data_len = len(data)
+        tcp_hdr = TCPHeader(sport, dport, seq, ack, flags, 0)
+
+        ipv4_len = 20 + 20 + data_len
+        ipv4_hdr = IPv4Header(ipv4_len, 64, 6, 0, src, dst)
+
+        return ipv4_hdr.to_bytes() + tcp_hdr.to_bytes() + data
 
     def send_packet(self, seq, ack, flags, data=b''):
-        pass
+        pkt = self.create_packet(self._local_addr, self._local_port, self._remote_addr, self._remote_port, seq, ack, flags, data)
+        self._send_ip_packet(pkt)
 
     def relative_seq_other(self, seq):
         '''
@@ -254,7 +261,16 @@ class TCPSocket:
         return seq - self.base_seq_self
 
     def send_if_possible(self):
-        pass
+        while (True):
+            inAir = self.send_buffer.next_seq - self.send_buffer.base_seq
+            if inAir >= self.cwnd:
+                return
+
+            data, seq = self.send_buffer.get(self.mss)
+            flags = TCPHeader.makeFlags(False, True)
+            self.send_packet(seq, self.ack, flags, data)
+            if (self.timer == None):
+                self.start_timer()
 
     def send(self, data):
         self.send_buffer.put(data)
@@ -266,13 +282,41 @@ class TCPSocket:
         return data
 
     def handle_data(self, pkt):
+        ip_hdr = IPv4Header.from_bytes(pkt[:IP_HEADER_LEN])
+        tcp_hdr = TCPHeader.from_bytes(pkt[IP_HEADER_LEN:TCPIP_HEADER_LEN])
+
+        seg_data = pkt[TCPIP_HEADER_LEN:]
+        seg_seq = tcp_hdr.seq
+
+        self.receive_buffer.put(seg_data, seg_seq)
+        ready_data, self.ack = self.receive_buffer.get()
+
+        self.send_ack()
+
+        self.ready_buffer += ready_data
+        self._notify_on_data()
         pass
 
     def handle_ack(self, pkt):
-        pass
+        ip_hdr = IPv4Header.from_bytes(pkt[:IP_HEADER_LEN])
+        tcp_hdr = TCPHeader.from_bytes(pkt[IP_HEADER_LEN:TCPIP_HEADER_LEN])
+
+        ack = tcp_hdr.ack
+
+        self.send_buffer.slide(ack)
+        self.seq = ack
+        self.cancel_timer()
+        if (self.send_buffer.next_seq > self.send_buffer.base_seq):
+            self.start_timer()
+        
+        self.send_if_possible()
 
     def retransmit(self):
-        pass
+        data, seq = self.send_buffer.get_for_resend(self.mss)
+        flags = TCPHeader.makeFlags(False, True)
+        self.send_packet(seq, self.ack, flags, data)
+        self.cancel_timer()
+        self.start_timer()
 
     def start_timer(self):
         self.timer = self._event_loop.schedule_event(self.timeout, self.retransmit)
