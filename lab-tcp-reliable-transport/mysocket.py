@@ -262,12 +262,14 @@ class TCPSocket:
 
     def send_if_possible(self):
         while (True):
-            inAir = self.send_buffer.next_seq - self.send_buffer.base_seq
+            inAir = self.send_buffer.bytes_outstanding()
             if inAir >= self.cwnd:
+                return
+            if self.send_buffer.bytes_not_yet_sent() <= 0:
                 return
 
             data, seq = self.send_buffer.get(self.mss)
-            flags = TCPHeader.makeFlags(False, True)
+            flags = TCPHeader.makeFlags(False, False)
             self.send_packet(seq, self.ack, flags, data)
             if (self.timer == None):
                 self.start_timer()
@@ -303,20 +305,35 @@ class TCPSocket:
 
         ack = tcp_hdr.ack
 
+        if self.send_buffer.bytes_outstanding > 0:
+            if ack == self.last_ack:
+                self.num_dup_acks += 1
+            else:
+                self.last_ack = ack
+                self.num_dup_acks = 0 # first ack seen
+
+        if self.num_dup_acks == 3 and self.fast_retransmit:
+            self.fast_retransmiter()
+
         self.send_buffer.slide(ack)
         self.seq = ack
         self.cancel_timer()
-        if (self.send_buffer.next_seq > self.send_buffer.base_seq):
+        if (self.send_buffer.bytes_outstanding() > 0):
             self.start_timer()
         
         self.send_if_possible()
 
     def retransmit(self):
         data, seq = self.send_buffer.get_for_resend(self.mss)
-        flags = TCPHeader.makeFlags(False, True)
+        flags = TCPHeader.makeFlags(False, False)
         self.send_packet(seq, self.ack, flags, data)
         self.cancel_timer()
         self.start_timer()
+
+    def fast_retransmiter(self):
+        data, seq = self.send_buffer.get_for_resend(self.mss)
+        flags = TCPHeader.makeFlags(False, False)
+        self.send_packet(seq, self.ack, flags, data)
 
     def start_timer(self):
         self.timer = self._event_loop.schedule_event(self.timeout, self.retransmit)
