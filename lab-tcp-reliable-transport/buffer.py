@@ -1,19 +1,19 @@
 import json
 
 class TCPSendBuffer(object):
-    def __init__(self, seq):
+    def __init__(self, seq: int):
         self.buffer = b''
         self.base_seq = seq
         self.next_seq = self.base_seq
         self.last_seq = self.base_seq
 
-    def bytes_not_yet_sent(self):
+    def bytes_not_yet_sent(self) -> int:
         return self.last_seq - self.next_seq
 
-    def bytes_outstanding(self):
+    def bytes_outstanding(self) -> int:
         return self.next_seq - self.base_seq
 
-    def put(self, data):
+    def put(self, data: bytes) -> int:
         # print("start put with data: ", data)
         # print("seqs - base: ", self.base_seq, ", next: ", self.next_seq, ", last: ", self.last_seq)
         # print("buffer: ", self.buffer)
@@ -24,7 +24,7 @@ class TCPSendBuffer(object):
         # print("end put")
         pass
 
-    def get(self, size):
+    def get(self, size: int) -> tuple[bytes, int]:
         # print("Start get with size: ", size)
         # print("seqs - base: ", self.base_seq, ", next: ", self.next_seq, ", last: ", self.last_seq)
         index = self.next_seq - self.base_seq
@@ -50,7 +50,7 @@ class TCPSendBuffer(object):
             # print("End get")
             return (data, return_seq)
 
-    def get_for_resend(self, size):
+    def get_for_resend(self, size: int) -> tuple[bytes, int]:
         if (size + self.base_seq) < self.last_seq:
             data = self.buffer[0:0 + size]
             return_seq = self.base_seq
@@ -61,7 +61,7 @@ class TCPSendBuffer(object):
             return (data, return_seq)
 
 
-    def slide(self, sequence):
+    def slide(self, sequence: int) -> None:
         index = sequence - self.base_seq
         self.buffer = self.buffer[index:]
         self.base_seq = sequence
@@ -69,11 +69,11 @@ class TCPSendBuffer(object):
 
 
 class TCPReceiveBuffer(object):
-    def __init__(self, seq):
+    def __init__(self, seq: int):
         self.buffer = {}
         self.base_seq = seq
 
-    def put(self, data, sequence):
+    def put(self, data: bytes, sequence: int) -> None:
         # print("Start put with data ", data, " at ", sequence)
         at = None
         value = None
@@ -114,7 +114,7 @@ class TCPReceiveBuffer(object):
         # print("data:", json.dumps(self.buffer, sort_keys=True))
         # print("End put")
 
-    def get(self):
+    def get(self) -> tuple[bytes, int]:
         data = b''
 
         keys = list(self.buffer.keys())
