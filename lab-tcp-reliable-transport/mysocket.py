@@ -303,9 +303,9 @@ class TCPSocket(TCPSocketBase):
         while (True):
             inAir = self.send_buffer.bytes_outstanding()
             if inAir >= self.cwnd:
-                return
+                return 0
             if self.send_buffer.bytes_not_yet_sent() <= 0:
-                return
+                return 0
 
             data, seq = self.send_buffer.get(self.mss)
             flags = TCPHeader.makeFlags(False, False)
@@ -344,7 +344,7 @@ class TCPSocket(TCPSocketBase):
 
         ack = tcp_hdr.ack
 
-        if self.send_buffer.bytes_outstanding > 0:
+        if self.send_buffer.bytes_outstanding() > 0:
             if ack == self.last_ack:
                 self.num_dup_acks += 1
             else:

@@ -1,6 +1,8 @@
 from cougarnet.util import \
         ip_str_to_binary, ip_binary_to_str
 
+import struct
+
 from headers import IPv4Header, UDPHeader, TCPHeader, \
         IP_HEADER_LEN, UDP_HEADER_LEN, TCP_HEADER_LEN, \
         TCPIP_HEADER_LEN, UDPIP_HEADER_LEN
